@@ -273,17 +273,17 @@ def build_circuit(x, p, sym=True):
         qc.cry(theta=p[8].item(), control_qubit=5, target_qubit=4)
         qc.cry(theta=p[8].item(), control_qubit=7, target_qubit=4)
     else:
-        qc.rx(p[0], 4)
-        qc.ry(p[1].item(), 4)
+        qc.rx(theta=p[0].item(), qubit=4)
+        qc.ry(theta=p[1].item(), qubit=4)
         for i in range(8):
-            qc.rx(p[2 + i].item(), i)
-            qc.ry(p[10 + i].item(), i)
+            qc.rx(theta=p[2 + i].item(), qubit=i)
+            qc.ry(theta=p[10 + i].item(), qubit=i)
         for i in [(0, 1), (2, 1), (2, 5), (8, 5), (8, 7), (6, 7), (6, 3), (0, 3)]:
-            qc.cry(p[18].item(), i[0], i[1])
+            qc.cry(theta=p[18].item(), control_qubit=i[0], target_qubit=i[1])
 
-        qc.cry(p[26].item(), 4, [0, 2, 6, 8])
+        qc.cry(theta=p[26].item(), control_qubit=4, target_qubit=[0, 2, 6, 8])
 
-        qc.cry(p[30].item(), [1, 3, 5, 7], 4)
+        qc.cry(theta=p[30].item(), control_qubit=[1, 3, 5, 7], target_qubit=4)
 
     return qc
 
@@ -375,7 +375,11 @@ Returns:
 """
     qc = build_circuit(x, p, sym=False)
     circuit = execute_circuit(qc, backend)
-    return [expval(circuit=circuit, obs=ob_center), expval(circuit=circuit, obs=ob_corner), expval(circuit=circuit, obs=ob_edge)]
+    center = expval(circuit=circuit, obs=ob_center)
+    corner = expval(circuit=circuit, obs=ob_corner)
+    edge = expval(circuit=circuit, obs=ob_edge)
+
+    return torch.cat([center, corner, edge])
 
 
 fig, ax = plt.subplots()
@@ -503,7 +507,7 @@ def cost_function_no_sym(params, input, target):
     Returns:
         torch.Tensor: The mean squared error between the model output and the target.
     """
-    output = torch.stack([torch.tensor(circuit_no_sym(x, params)) for x in input])
+    output = torch.stack([circuit_no_sym(x, params) for x in input])
     vec = output - target
     sum_sqr = torch.sum(vec * vec, dim=1)
     return torch.mean(sum_sqr)
@@ -529,7 +533,7 @@ def accuracy_no_sym(p, x_val, y_val):
     """
     with torch.no_grad():
         y_val = torch.tensor(y_val)
-        y_out = torch.stack([torch.tensor(circuit_no_sym(x, p)) for x in x_val])
+        y_out = torch.stack([circuit_no_sym(x, p) for x in x_val])
         acc = torch.sum(torch.argmax(y_out, axis=1) == torch.argmax(y_val, axis=1))
         return acc / len(x_val)
 
@@ -538,13 +542,20 @@ print(f"non-symmetric accuracy without training = {accuracy_no_sym(params, *enco
 x_dataset = torch.stack(encoded_dataset[0])
 y_dataset = torch.tensor(encoded_dataset[1], requires_grad=False)
 
-train_loader = DataLoader(list(zip(x_dataset, y_dataset)), batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+# train_loader = DataLoader(list(zip(x_dataset, y_dataset)), batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
 
 saved_costs = []
 saved_accs = []
 for epoch in range(max_epoch):
     costs = []
-    for x_batch, y_batch in train_loader:
+    rand_idx = torch.randperm(len(x_dataset))
+    # Shuffled dataset
+    x_dataset = x_dataset[rand_idx]
+    y_dataset = y_dataset[rand_idx]
+    costs = []
+    for step in range(max_step):
+        x_batch = x_dataset[step * batch_size : (step + 1) * batch_size]
+        y_batch = y_dataset[step * batch_size : (step + 1) * batch_size]
         def opt_func():
             opt.zero_grad()
             loss = cost_function_no_sym(params, x_batch, y_batch)
