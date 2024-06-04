@@ -384,6 +384,7 @@ for epoch in range(max_epoch):
             return loss
 
         opt.step(opt_func)
+        print(f"step: {opt.state_dict()} done\n")
 
     cost = np.mean(costs)
     saved_costs_sym.append(cost)
